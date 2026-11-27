@@ -43,6 +43,9 @@ logger = logging.getLogger(__name__)
 # Lambda's init phase budget; a slower init gets the function's timeout, as Lambda retries it then.
 INIT_TIMEOUT = 10.0
 LOG_TAIL_BYTES = 4096
+IDLE_CHECKS_PER_TIMEOUT = 4
+IDLE_CHECK_MIN_INTERVAL = 0.1
+IDLE_CHECK_MAX_INTERVAL = 30.0
 RUNTIME_CLIENT = str(Path(__file__).with_name("runtime_client.py"))
 LAMBDA_BASE_IMAGE_BOOTSTRAP = "/var/runtime/bootstrap"
 LAMBDA_RUNTIME_DIR = "/var/runtime"
@@ -880,9 +883,11 @@ def stop_idle_workers() -> None:
 def _reap_idle_workers() -> None:
     while True:
         idle_seconds = settings.lambda_process_idle_timeout()
-        time.sleep(
-            1.0 if idle_seconds is None else min(max(idle_seconds / 4, 0.1), 30.0)
-        )
+        if idle_seconds is None:
+            interval = IDLE_CHECK_MAX_INTERVAL
+        else:
+            interval = idle_seconds / IDLE_CHECKS_PER_TIMEOUT
+        time.sleep(min(max(interval, IDLE_CHECK_MIN_INTERVAL), IDLE_CHECK_MAX_INTERVAL))
         stop_idle_workers()
 
 
