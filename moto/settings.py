@@ -226,6 +226,11 @@ def lambda_process_pool_size() -> int:
     return int(os.environ.get("MOTO_LAMBDA_PROCESS_POOL_SIZE", "4"))
 
 
+def lambda_process_idle_timeout() -> float | None:
+    value = os.environ.get("MOTO_LAMBDA_PROCESS_IDLE_TIMEOUT")
+    return float(value) if value else None
+
+
 def lambda_event_source_free_workers() -> int:
     """MOTO_LAMBDA_EVENT_SOURCE_FREE_WORKERS: workers per function that event source mapping
     invocations leave for other invocations (default 1), so polling cannot starve direct calls."""
