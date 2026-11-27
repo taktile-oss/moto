@@ -422,7 +422,7 @@ class Worker:
         self.lines: list[str] = []
         self.lines_lock = threading.Lock()
         self.dead = False
-        self.idle_since = time.monotonic()
+        self.idle_since: float | None = None
         now = datetime.now(timezone.utc)
         self.log_stream = f"{now:%Y/%m/%d}/[{self.spec.version}]{uuid.uuid4().hex}"
 
@@ -768,6 +768,7 @@ class FunctionPool:
         with self.lock:
             while self.idle:
                 worker = self.idle.pop()
+                worker.idle_since = None
                 if worker.alive:
                     return worker
                 worker.kill()
@@ -844,13 +845,10 @@ class FunctionPool:
             expired = [
                 worker
                 for worker in self.idle
-                if worker.idle_since + max_idle_seconds <= now
+                if worker.idle_since is not None
+                and worker.idle_since + max_idle_seconds <= now
             ]
-            self.idle = [
-                worker
-                for worker in self.idle
-                if worker.idle_since + max_idle_seconds > now
-            ]
+            self.idle = [worker for worker in self.idle if worker not in expired]
         for worker in expired:
             self._discard(worker)
 
