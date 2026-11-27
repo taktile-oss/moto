@@ -227,6 +227,10 @@ def lambda_process_pool_size() -> int:
 
 
 def lambda_process_idle_timeout() -> float:
+    """Stop a Lambda worker process after it waits this many seconds for an invocation, as Lambda stops idle execution environments.
+
+    Without it, moto keeps every worker process until the server stops.
+    """
     return float(os.environ.get("MOTO_LAMBDA_PROCESS_IDLE_TIMEOUT", "300"))
 
 
