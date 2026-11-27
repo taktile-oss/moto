@@ -422,6 +422,7 @@ class Worker:
         self.lines: list[str] = []
         self.lines_lock = threading.Lock()
         self.dead = False
+        self.idle_since: float | None = None
         now = datetime.now(timezone.utc)
         self.log_stream = f"{now:%Y/%m/%d}/[{self.spec.version}]{uuid.uuid4().hex}"
 
@@ -767,6 +768,7 @@ class FunctionPool:
         with self.lock:
             while self.idle:
                 worker = self.idle.pop()
+                worker.idle_since = None
                 if worker.alive:
                     return worker
                 worker.kill()
@@ -826,6 +828,7 @@ class FunctionPool:
             result = worker.invoke(payload, trace_id, client_context)
             with self.lock:
                 if worker.alive and not self.retired:
+                    worker.idle_since = time.monotonic()
                     self.idle.append(worker)
                     return result
             self._discard(worker)
@@ -835,6 +838,19 @@ class FunctionPool:
         worker.kill()
         with self.lock:
             self.workers.discard(worker)
+
+    def stop_idle_workers(self, max_idle_seconds: float) -> None:
+        now = time.monotonic()
+        with self.lock:
+            expired = [
+                worker
+                for worker in self.idle
+                if worker.idle_since is not None
+                and worker.idle_since + max_idle_seconds <= now
+            ]
+            self.idle = [worker for worker in self.idle if worker not in expired]
+        for worker in expired:
+            self._discard(worker)
 
     def retire(self) -> None:
         """Stops idle workers now and busy ones when their invocation ends."""
@@ -854,9 +870,40 @@ class FunctionPool:
 
 _pools: dict[tuple[str, str], FunctionPool] = {}
 _pools_lock = threading.Lock()
+_idle_reaper: threading.Thread | None = None
+
+
+def stop_idle_workers() -> None:
+    max_idle_seconds = settings.lambda_process_idle_timeout()
+    with _pools_lock:
+        pools = list(_pools.values())
+    for pool in pools:
+        pool.stop_idle_workers(max_idle_seconds)
+
+
+def _reap_idle_workers(max_idle_seconds: float) -> None:
+    while True:
+        time.sleep(max_idle_seconds)
+        stop_idle_workers()
+
+
+def _start_idle_reaper() -> None:
+    global _idle_reaper
+    max_idle_seconds = settings.lambda_process_idle_timeout()
+    with _pools_lock:
+        if _idle_reaper is not None:
+            return
+        _idle_reaper = threading.Thread(
+            target=_reap_idle_workers,
+            args=(max_idle_seconds,),
+            name="lambda-idle-reaper",
+            daemon=True,
+        )
+    _idle_reaper.start()
 
 
 def get_pool(fn: LambdaFunction) -> FunctionPool:
+    _start_idle_reaper()
     key = (fn.account_id, fn.function_arn)
     fingerprint = _fingerprint(fn)
     with _pools_lock:

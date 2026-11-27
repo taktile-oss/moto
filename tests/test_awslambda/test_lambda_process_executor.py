@@ -501,6 +501,53 @@ def test_delete_function_stops_its_workers(client, tmp_path):
     assert not worker.alive
 
 
+def test_idle_timeout_stops_idle_workers(client, tmp_path, monkeypatch):
+    idle_timeout_seconds = 0.5
+    wait_seconds = 10
+    poll_seconds = 0.1
+    monkeypatch.setenv("MOTO_LAMBDA_PROCESS_IDLE_TIMEOUT", str(idle_timeout_seconds))
+    monkeypatch.setattr(executor, "_idle_reaper", None)
+    name = create(client, write_code(tmp_path / "code", HANDLER))
+    _, first = invoke(client, name)
+    pool = executor.get_pool(get_backend("123456789012", REGION).get_function(name))
+    [worker] = pool.idle
+
+    deadline = time.time() + wait_seconds
+    while worker.alive and time.time() < deadline:
+        time.sleep(poll_seconds)
+    _, second = invoke(client, name)
+
+    assert not worker.alive
+    assert second["pid"] != first["pid"]
+
+
+def test_idle_workers_keep_running_within_the_default_idle_timeout(
+    client, tmp_path, monkeypatch
+):
+    monkeypatch.delenv("MOTO_LAMBDA_PROCESS_IDLE_TIMEOUT", raising=False)
+    name = create(client, write_code(tmp_path / "code", HANDLER))
+    invoke(client, name)
+    pool = executor.get_pool(get_backend("123456789012", REGION).get_function(name))
+    [worker] = pool.idle
+
+    executor.stop_idle_workers()
+
+    assert worker.alive
+    assert pool.idle == [worker]
+
+
+def test_idle_timeout_spares_a_busy_worker(client, tmp_path, monkeypatch):
+    idle_timeout_seconds = 0.2
+    invocation_seconds = 1.5
+    monkeypatch.setenv("MOTO_LAMBDA_PROCESS_IDLE_TIMEOUT", str(idle_timeout_seconds))
+    monkeypatch.setattr(executor, "_idle_reaper", None)
+    name = create(client, write_code(tmp_path / "code", SLEEPING_HANDLER))
+
+    resp, _ = invoke(client, name, {"seconds": invocation_seconds})
+
+    assert "FunctionError" not in resp
+
+
 ENV_HANDLER = """import os
 
 
