@@ -226,9 +226,8 @@ def lambda_process_pool_size() -> int:
     return int(os.environ.get("MOTO_LAMBDA_PROCESS_POOL_SIZE", "4"))
 
 
-def lambda_process_idle_timeout() -> float | None:
-    value = os.environ.get("MOTO_LAMBDA_PROCESS_IDLE_TIMEOUT")
-    return float(value) if value else None
+def lambda_process_idle_timeout() -> float:
+    return float(os.environ.get("MOTO_LAMBDA_PROCESS_IDLE_TIMEOUT", "300"))
 
 
 def lambda_event_source_free_workers() -> int:

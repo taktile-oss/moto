@@ -869,8 +869,6 @@ _idle_reaper: threading.Thread | None = None
 
 def stop_idle_workers() -> None:
     idle_seconds = settings.lambda_process_idle_timeout()
-    if idle_seconds is None:
-        return
     with _pools_lock:
         pools = list(_pools.values())
     for pool in pools:
@@ -886,8 +884,6 @@ def _reap_idle_workers(idle_seconds: float) -> None:
 def _start_idle_reaper() -> None:
     global _idle_reaper
     idle_seconds = settings.lambda_process_idle_timeout()
-    if idle_seconds is None:
-        return
     with _pools_lock:
         if _idle_reaper is not None:
             return
