@@ -838,16 +838,18 @@ class FunctionPool:
         with self.lock:
             self.workers.discard(worker)
 
-    def stop_idle_workers(self, idle_seconds: float) -> None:
+    def stop_idle_workers(self, max_idle_seconds: float) -> None:
         now = time.monotonic()
         with self.lock:
             expired = [
                 worker
                 for worker in self.idle
-                if worker.idle_since + idle_seconds <= now
+                if worker.idle_since + max_idle_seconds <= now
             ]
             self.idle = [
-                worker for worker in self.idle if worker.idle_since + idle_seconds > now
+                worker
+                for worker in self.idle
+                if worker.idle_since + max_idle_seconds > now
             ]
         for worker in expired:
             self._discard(worker)
@@ -874,28 +876,28 @@ _idle_reaper: threading.Thread | None = None
 
 
 def stop_idle_workers() -> None:
-    idle_seconds = settings.lambda_process_idle_timeout()
+    max_idle_seconds = settings.lambda_process_idle_timeout()
     with _pools_lock:
         pools = list(_pools.values())
     for pool in pools:
-        pool.stop_idle_workers(idle_seconds)
+        pool.stop_idle_workers(max_idle_seconds)
 
 
-def _reap_idle_workers(idle_seconds: float) -> None:
+def _reap_idle_workers(max_idle_seconds: float) -> None:
     while True:
-        time.sleep(idle_seconds)
+        time.sleep(max_idle_seconds)
         stop_idle_workers()
 
 
 def _start_idle_reaper() -> None:
     global _idle_reaper
-    idle_seconds = settings.lambda_process_idle_timeout()
+    max_idle_seconds = settings.lambda_process_idle_timeout()
     with _pools_lock:
         if _idle_reaper is not None:
             return
         _idle_reaper = threading.Thread(
             target=_reap_idle_workers,
-            args=(idle_seconds,),
+            args=(max_idle_seconds,),
             name="lambda-idle-reaper",
             daemon=True,
         )
