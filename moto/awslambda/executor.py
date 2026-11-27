@@ -43,9 +43,6 @@ logger = logging.getLogger(__name__)
 # Lambda's init phase budget; a slower init gets the function's timeout, as Lambda retries it then.
 INIT_TIMEOUT = 10.0
 LOG_TAIL_BYTES = 4096
-IDLE_CHECKS_PER_TIMEOUT = 4
-IDLE_CHECK_MIN_INTERVAL = 0.1
-IDLE_CHECK_MAX_INTERVAL = 30.0
 RUNTIME_CLIENT = str(Path(__file__).with_name("runtime_client.py"))
 LAMBDA_BASE_IMAGE_BOOTSTRAP = "/var/runtime/bootstrap"
 LAMBDA_RUNTIME_DIR = "/var/runtime"
@@ -880,26 +877,25 @@ def stop_idle_workers() -> None:
         pool.stop_idle_workers(idle_seconds)
 
 
-def _reap_idle_workers() -> None:
+def _reap_idle_workers(idle_seconds: float) -> None:
     while True:
-        idle_seconds = settings.lambda_process_idle_timeout()
-        if idle_seconds is None:
-            interval = IDLE_CHECK_MAX_INTERVAL
-        else:
-            interval = idle_seconds / IDLE_CHECKS_PER_TIMEOUT
-        time.sleep(min(max(interval, IDLE_CHECK_MIN_INTERVAL), IDLE_CHECK_MAX_INTERVAL))
+        time.sleep(idle_seconds)
         stop_idle_workers()
 
 
 def _start_idle_reaper() -> None:
     global _idle_reaper
-    if settings.lambda_process_idle_timeout() is None:
+    idle_seconds = settings.lambda_process_idle_timeout()
+    if idle_seconds is None:
         return
     with _pools_lock:
         if _idle_reaper is not None:
             return
         _idle_reaper = threading.Thread(
-            target=_reap_idle_workers, name="lambda-idle-reaper", daemon=True
+            target=_reap_idle_workers,
+            args=(idle_seconds,),
+            name="lambda-idle-reaper",
+            daemon=True,
         )
     _idle_reaper.start()
 
