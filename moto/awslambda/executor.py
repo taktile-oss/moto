@@ -839,10 +839,16 @@ class FunctionPool:
             self.workers.discard(worker)
 
     def stop_idle_workers(self, idle_seconds: float) -> None:
-        cutoff = time.monotonic() - idle_seconds
+        now = time.monotonic()
         with self.lock:
-            expired = [worker for worker in self.idle if worker.idle_since <= cutoff]
-            self.idle = [worker for worker in self.idle if worker.idle_since > cutoff]
+            expired = [
+                worker
+                for worker in self.idle
+                if worker.idle_since + idle_seconds <= now
+            ]
+            self.idle = [
+                worker for worker in self.idle if worker.idle_since + idle_seconds > now
+            ]
         for worker in expired:
             self._discard(worker)
 
